@@ -42,8 +42,29 @@ def convert_to_webp(
     dst.parent.mkdir(parents=True, exist_ok=True)
 
     with Image.open(src) as im:
-        im = im.convert("RGBA") if im.mode in ("P", "LA") else im.convert("RGB")
-        im.save(dst, "WEBP", quality=quality)
+        # 원본 이미지의 DPI 정보 보존 (convert 전에 저장)
+        dpi = im.info.get("dpi")
+        
+        # 투명도가 있는 이미지는 RGBA로 유지/변환
+        if im.mode in ("RGBA", "LA", "PA"):
+            # 이미 RGBA 모드이거나 알파 채널이 있는 모드
+            im = im.convert("RGBA")
+        elif im.mode == "P":
+            # 팔레트 모드: 투명도가 있는지 확인
+            if "transparency" in im.info:
+                im = im.convert("RGBA")
+            else:
+                im = im.convert("RGB")
+        else:
+            # 그 외 모드는 RGB로 변환
+            im = im.convert("RGB")
+        
+        # DPI 정보가 있으면 저장 시 포함
+        save_kwargs = {"quality": quality}
+        if dpi:
+            save_kwargs["dpi"] = dpi
+        
+        im.save(dst, "WEBP", **save_kwargs)
 
     return dst
 
