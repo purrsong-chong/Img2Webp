@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, List, Optional, Union
+from typing import Callable, Iterable, List, Optional, Union
 
 from PIL import Image
 
@@ -72,17 +72,24 @@ def convert_to_webp(
 def batch_convert_to_webp(
     inputs: Iterable[Union[str, Path]],
     quality: int = 80,
+    progress_callback: Optional[Callable[[int, int], None]] = None,
 ) -> List[Path]:
     """
     여러 파일을 한꺼번에 WebP로 변환한다.
     지원하지 않는 확장자는 조용히 건너뛴다.
+    
+    - progress_callback: 각 파일 변환 후 호출되는 콜백 함수 (current, total) 형태
     """
+    inputs_list = list(inputs)
+    supported_paths = [path for path in inputs_list if is_supported_image(path)]
+    total = len(supported_paths)
+    
     results: List[Path] = []
-    for path in inputs:
-        if not is_supported_image(path):
-            continue
+    for idx, path in enumerate(supported_paths, 1):
         converted = convert_to_webp(path, quality=quality)
         results.append(converted)
+        if progress_callback:
+            progress_callback(idx, total)
     return results
 
 

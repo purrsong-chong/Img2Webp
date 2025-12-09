@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import List
 
-from PySide6.QtCore import QMimeData, Qt
+from PySide6.QtCore import QMimeData, Qt, QThread, Signal
 from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMessageBox,
+    QProgressBar,
     QStatusBar,
     QVBoxLayout,
     QWidget,
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QPushButton,
 )
 
-from .core import SUPPORTED_EXTENSIONS, batch_convert_to_webp
+from .core import SUPPORTED_EXTENSIONS, batch_convert_to_webp, convert_to_webp, is_supported_image
 
 
 class DropListWidget(QListWidget):
@@ -76,6 +77,34 @@ class DropListWidget(QListWidget):
             QMessageBox.warning(self, "경고", "드롭 이벤트를 처리할 수 있는 윈도우를 찾지 못했습니다.")
 
 
+class ConvertWorker(QThread):
+    """백그라운드에서 이미지 변환 작업을 수행하는 워커 스레드"""
+    progress = Signal(int, int)  # (current, total)
+    finished = Signal(list)  # 결과 리스트
+    error = Signal(str)  # 에러 메시지
+
+    def __init__(self, paths: List[Path], quality: int, parent=None):
+        super().__init__(parent)
+        self.paths = paths
+        self.quality = quality
+
+    def run(self):
+        """워커 스레드에서 실행될 변환 작업"""
+        try:
+            results = []
+            supported_paths = [p for p in self.paths if is_supported_image(p)]
+            total = len(supported_paths)
+            
+            for idx, path in enumerate(supported_paths, 1):
+                converted = convert_to_webp(path, quality=self.quality)
+                results.append(converted)
+                self.progress.emit(idx, total)
+            
+            self.finished.emit(results)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -117,12 +146,23 @@ class MainWindow(QMainWindow):
         control_layout.addWidget(self.quality_value_label)
         control_layout.addWidget(self.clear_button)
 
+        # Progress Bar 추가
+        self.progress_bar = QProgressBar(self)
+        self.progress_bar.setVisible(False)  # 초기에는 숨김
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setFormat("%p% (%v/%m)")
+
         self.list_widget = DropListWidget(self)
         self.list_widget.setAlternatingRowColors(True)
 
         layout.addWidget(info_label)
         layout.addLayout(control_layout)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.list_widget)
+
+        # 워커 스레드 참조
+        self.worker: ConvertWorker | None = None
 
         self.setCentralWidget(central)
 
@@ -132,27 +172,79 @@ class MainWindow(QMainWindow):
 
     # DropListWidget에서 호출
     def handle_files_dropped(self, paths: List[Path]) -> None:
+        # 이미 변환 중이면 무시
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "알림", "이미 변환 작업이 진행 중입니다.")
+            return
+
         # UI 갱신
         self.list_widget.clear()
-        for p in paths:
+        supported_paths = [p for p in paths if p.suffix.lower() in SUPPORTED_EXTENSIONS]
+        for p in supported_paths:
             item = QListWidgetItem(str(p))
             self.list_widget.addItem(item)
 
-        quality = self.quality_slider.value()
-        self.statusBar().showMessage(f"WebP 변환 중... (품질 {quality})")
-        try:
-            outputs = batch_convert_to_webp(paths, quality=quality)
-        except Exception as e:  # 방어적 처리
-            QMessageBox.critical(self, "에러", f"변환 중 오류가 발생했습니다:\n{e}")
-            self.statusBar().showMessage("에러 발생")
+        if not supported_paths:
+            QMessageBox.information(self, "알림", "지원하는 이미지 파일(PNG, JPG, JPEG)이 없습니다.")
             return
 
+        quality = self.quality_slider.value()
+        
+        # Progress Bar 표시 및 초기화
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(len(supported_paths))
+        self.progress_bar.setValue(0)
+        
+        # 컨트롤 비활성화 (변환 중에는 변경 불가)
+        self.quality_slider.setEnabled(False)
+        self.clear_button.setEnabled(False)
+        
+        self.statusBar().showMessage(f"WebP 변환 준비 중... (품질 {quality})")
+
+        # 워커 스레드 생성 및 시작
+        self.worker = ConvertWorker(supported_paths, quality, self)
+        self.worker.progress.connect(self.on_progress_update)
+        self.worker.finished.connect(self.on_conversion_finished)
+        self.worker.error.connect(self.on_conversion_error)
+        self.worker.start()
+
+    def on_progress_update(self, current: int, total: int) -> None:
+        """진행 상황 업데이트"""
+        self.progress_bar.setValue(current)
+        quality = self.quality_slider.value()
+        self.statusBar().showMessage(
+            f"WebP 변환 중... ({current}/{total}) (품질 {quality})"
+        )
+
+    def on_conversion_finished(self, outputs: List[Path]) -> None:
+        """변환 완료 처리"""
+        self.progress_bar.setVisible(False)
+        
+        # 컨트롤 다시 활성화
+        self.quality_slider.setEnabled(True)
+        self.clear_button.setEnabled(True)
+        
         self.statusBar().showMessage(f"변환 완료: {len(outputs)}개 파일")
         QMessageBox.information(
             self,
             "완료",
             f"WebP 변환이 완료되었습니다.\n변환된 파일 수: {len(outputs)}",
         )
+        
+        self.worker = None
+
+    def on_conversion_error(self, error_msg: str) -> None:
+        """변환 에러 처리"""
+        self.progress_bar.setVisible(False)
+        
+        # 컨트롤 다시 활성화
+        self.quality_slider.setEnabled(True)
+        self.clear_button.setEnabled(True)
+        
+        QMessageBox.critical(self, "에러", f"변환 중 오류가 발생했습니다:\n{error_msg}")
+        self.statusBar().showMessage("에러 발생")
+        
+        self.worker = None
 
     def clear_converted_list(self) -> None:
         """변환 목록과 상태 표시를 초기화."""
