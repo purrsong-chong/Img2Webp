@@ -89,7 +89,7 @@ pip install pyinstaller
 2. **앱 빌드 (`run_gui.py` 진입점 사용)**
 
 ```bash
-cd .../converter
+cd .../Img2Webp
 pyinstaller \
   --onedir \
   --windowed \
