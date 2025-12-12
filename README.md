@@ -1,6 +1,6 @@
-## 이미지 → WebP 변환 GUI (macOS)
+## 이미지 → WebP 변환 GUI (macOS / Windows)
 
-이 프로젝트는 **macOS 전용** 이미지 변환 GUI 도구입니다.  
+이 프로젝트는 **macOS 및 Windows**용 이미지 변환 GUI 도구입니다.  
 PNG / JPG / JPEG 파일(또는 폴더)을 창에 **드래그 앤 드롭** 하면, 같은 위치에 WebP 파일을 자동으로 만들어 줍니다.
 
 - **입력 포맷**: `.png`, `.jpg`, `.jpeg`
@@ -75,16 +75,27 @@ python run_gui.py
 - **테스트**: `tests/test_core.py`
   - 지원 확장자 체크, 변환 성공/실패 케이스, 배치 변환 동작 확인
 
-### 6. macOS 앱(.app)으로 패키징하기 (PyInstaller)
+### 6. 실행 파일로 패키징하기 (PyInstaller)
 
-일반 사용자도 파이썬 설치 없이 쓸 수 있도록 **macOS 앱(.app)** 형태로 패키징할 수 있습니다.
+일반 사용자도 파이썬 설치 없이 쓸 수 있도록 **실행 파일** 형태로 패키징할 수 있습니다.
 
-1. **PyInstaller 설치**
+> **⚠️ 중요**: PyInstaller는 **크로스 컴파일을 지원하지 않습니다**. 각 플랫폼에서 해당 플랫폼용으로 빌드해야 합니다.
+>
+> - **macOS에서 빌드** → macOS용 `.app` 파일만 생성 (Windows에서 실행 불가)
+> - **Windows에서 빌드** → Windows용 `.exe` 파일만 생성 (macOS에서 실행 불가)
+>
+> Windows용 실행 파일이 필요하면 **Windows PC에서 빌드**해야 합니다.
+
+#### 6-1. macOS 앱(.app)으로 패키징하기
+
+1. **의존성 확인**
 
 ```bash
 conda activate img2webp
-pip install pyinstaller
+pip install -r requirements.txt
 ```
+
+> **참고**: `requirements.txt`에 PyInstaller가 포함되어 있습니다. 이미 설치했다면 이 단계를 건너뛰어도 됩니다.
 
 2. **앱 빌드 (`run_gui.py` 진입점 사용)**
 
@@ -99,7 +110,7 @@ pyinstaller \
 
 - 빌드 후 `dist/Img2WebP.app` 생성
 - 이 파일을 다른 Mac으로 복사해서 **더블클릭** 하면 바로 실행 가능  
-  (첫 실행 때는 “확인되지 않은 개발자” 경고가 뜰 수 있으므로, 우클릭 → _열기_ 로 한 번 허용)
+  (첫 실행 때는 "확인되지 않은 개발자" 경고가 뜰 수 있으므로, 우클릭 → _열기_ 로 한 번 허용)
 
 3. **앱 아이콘 설정(선택 사항)**
 
@@ -114,6 +125,12 @@ pyinstaller \
   run_gui.py
 ```
 
+또는 spec 파일 사용:
+
+```bash
+pyinstaller Img2WebP.spec
+```
+
 4. **DMG 패키지 만들기(선택 사항)**
 
 - `dist/Img2WebP.app` 를 DMG로 감싸서 배포하고 싶다면:
@@ -124,3 +141,58 @@ hdiutil create -volname "Img2WebP" -srcfolder "Img2WebP.app" -ov -format UDZO Im
 ```
 
 - 그러면 `dist/Img2WebP.dmg` 가 생성되고, 이 파일 하나만 배포해도 사용자가 DMG를 열어 `Img2WebP.app` 를 `/Applications` 로 드래그해서 설치할 수 있습니다.
+
+#### 6-2. Windows 실행 파일(.exe)로 패키징하기
+
+1. **의존성 확인**
+
+```bash
+conda activate img2webp
+pip install -r requirements.txt
+```
+
+> **참고**: `requirements.txt`에 PyInstaller가 포함되어 있습니다. 이미 설치했다면 이 단계를 건너뛰어도 됩니다.
+
+2. **Windows용 아이콘 파일 생성**
+
+- Windows에서는 `.ico` 파일이 필요합니다. 기존 PNG 아이콘을 사용하여 `.ico` 파일을 생성합니다:
+
+```bash
+python create_ico.py
+```
+
+- 이 명령어를 실행하면 `Img2WebP.ico` 파일이 생성됩니다.
+
+3. **Windows 실행 파일 빌드**
+
+- spec 파일을 사용하여 빌드:
+
+```bash
+pyinstaller Img2WebP_windows.spec
+```
+
+- 또는 직접 명령어로 빌드:
+
+```bash
+pyinstaller \
+  --onefile \
+  --windowed \
+  --name "Img2WebP" \
+  --icon "Img2WebP.ico" \
+  run_gui.py
+```
+
+- 빌드 후 `dist/Img2WebP.exe` 생성
+- 이 파일을 다른 Windows 컴퓨터로 복사해서 **더블클릭** 하면 바로 실행 가능
+
+4. **배포 패키지 만들기(선택 사항)**
+
+- Windows에서는 ZIP 파일로 배포하는 것이 일반적입니다:
+
+```bash
+cd dist
+# Windows에서
+powershell Compress-Archive -Path Img2WebP.exe -DestinationPath Img2WebP.zip
+```
+
+- 또는 수동으로 `dist/Img2WebP.exe` 파일을 ZIP으로 압축하여 배포할 수 있습니다.

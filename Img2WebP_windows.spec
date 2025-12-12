@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+# Windows용 PyInstaller spec 파일
+from pathlib import Path
 
 a = Analysis(
     ['run_gui.py'],
@@ -20,6 +21,7 @@ exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
+    a.zipfiles,
     a.datas,
     [],
     name='Img2WebP',
@@ -35,11 +37,6 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['Img2WebP.ico'],
+    **({'icon': ['Img2WebP.ico']} if Path('Img2WebP.ico').exists() else {}),
 )
-app = BUNDLE(
-    exe,
-    name='Img2WebP.app',
-    icon='Img2WebP.ico',
-    bundle_identifier=None,
-)
+
